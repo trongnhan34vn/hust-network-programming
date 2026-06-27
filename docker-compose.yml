@@ -1,0 +1,9 @@
+services:
+  ubuntu:
+    build: .
+    container_name: network-programming
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    tty: true
+    stdin_open: true
