@@ -8,7 +8,7 @@ char *subStr(char *s1, int offset, int number)
     for (int i = 0; i < number; i++)
     {
         // do offset đếm từ 1, còn index string đếm từ 0
-        result[i] = s1[offset - 1 + i];
+        result[i] = s1[offset + i];
     }
     result[number] = '\0';
 
