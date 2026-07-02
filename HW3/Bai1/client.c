@@ -18,28 +18,34 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    /* Tạo UDP socket; không cần connect() vì UDP là connectionless */
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) { perror("socket"); return 1; }
 
+    /* Cấu hình địa chỉ server để gửi datagram đến */
     struct sockaddr_in server;
     memset(&server, 0, sizeof(server));
     server.sin_family = AF_INET;
     server.sin_port   = htons(atoi(argv[2]));
-    inet_pton(AF_INET, argv[1], &server.sin_addr);
+    inet_pton(AF_INET, argv[1], &server.sin_addr); /* Chuyển chuỗi IP sang dạng nhị phân */
 
     char input[BUF_SIZE], response[BUF_SIZE * 2];
 
+    /* Vòng lặp nhập liệu: mỗi lần gửi một datagram và nhận một datagram phản hồi */
     while (1) {
         printf("Enter string (empty to quit): ");
         fflush(stdout);
-        if (!fgets(input, sizeof(input), stdin)) break;
+        if (!fgets(input, sizeof(input), stdin)) break;  /* EOF (Ctrl+D) thì thoát */
 
+        /* Xóa newline do fgets đọc vào; nếu dòng rỗng thì thoát */
         input[strcspn(input, "\n")] = '\0';
         if (input[0] == '\0') break;
 
+        /* Gửi datagram đến server (không cần kết nối trước) */
         sendto(sock, input, strlen(input), 0,
                (struct sockaddr *)&server, sizeof(server));
 
+        /* Nhận datagram phản hồi; slen dùng để truyền/nhận kích thước địa chỉ */
         socklen_t slen = sizeof(server);
         int n = recvfrom(sock, response, sizeof(response) - 1, 0,
                          (struct sockaddr *)&server, &slen);

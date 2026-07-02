@@ -18,9 +18,11 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    /* Tạo UDP socket; mỗi lần hỏi là một datagram độc lập, không cần connect() */
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) { perror("socket"); return 1; }
 
+    /* Cấu hình địa chỉ server DNS */
     struct sockaddr_in server;
     memset(&server, 0, sizeof(server));
     server.sin_family = AF_INET;
@@ -29,17 +31,21 @@ int main(int argc, char *argv[]) {
 
     char input[256], response[BUF_SIZE];
 
+    /* Vòng lặp: mỗi lần nhập một tên miền/IP, gửi đi và chờ nhận kết quả */
     while (1) {
         printf("Enter domain or IP (empty to quit): ");
         fflush(stdout);
-        if (!fgets(input, sizeof(input), stdin)) break;
+        if (!fgets(input, sizeof(input), stdin)) break;  /* EOF thì thoát */
 
+        /* Xóa newline; dòng rỗng → thoát */
         input[strcspn(input, "\n")] = '\0';
         if (input[0] == '\0') break;
 
+        /* Gửi query đến server DNS */
         sendto(sock, input, strlen(input), 0,
                (struct sockaddr *)&server, sizeof(server));
 
+        /* Nhận và hiển thị kết quả DNS từ server */
         socklen_t slen = sizeof(server);
         int n = recvfrom(sock, response, sizeof(response) - 1, 0,
                          (struct sockaddr *)&server, &slen);

@@ -19,61 +19,71 @@
 #define SERVER_PORT 5500
 #define BUF_SIZE    1024
 
+/* Đọc đúng n byte từ fd, xử lý trường hợp TCP trả về ít byte hơn yêu cầu (partial read) */
 static int read_all(int fd, char *buf, int n) {
     int total = 0, r;
     while (total < n) {
         r = read(fd, buf + total, n - total);
-        if (r <= 0) return r;
+        if (r <= 0) return r;   /* Lỗi hoặc kết nối đóng */
         total += r;
     }
     return total;
 }
 
+/* Ghi đúng n byte vào fd, xử lý trường hợp write() ghi ít hơn yêu cầu (partial write) */
 static int write_all(int fd, const char *buf, int n) {
     int total = 0, w;
     while (total < n) {
         w = write(fd, buf + total, n - total);
-        if (w <= 0) return w;
+        if (w <= 0) return w;   /* Lỗi hoặc kết nối đóng */
         total += w;
     }
     return total;
 }
 
-/* Nhận tin nhắn với 4-byte length prefix */
+/* Nhận một tin nhắn theo giao thức length-prefix:
+ *   [4 byte độ dài (big-endian)] [nội dung]
+ * Trả về số byte nội dung nhận được, hoặc -1 nếu lỗi */
 static int recv_msg(int fd, char *buf, int maxlen) {
     uint32_t net_len;
+    /* Đọc 4 byte đầu để biết độ dài phần nội dung */
     if (read_all(fd, (char *)&net_len, 4) != 4) return -1;
-    int len = (int)ntohl(net_len);
-    if (len >= maxlen) return -1;
+    int len = (int)ntohl(net_len);      /* Chuyển từ network byte order sang host */
+    if (len >= maxlen) return -1;       /* Tránh tràn buffer */
     if (read_all(fd, buf, len) != len) return -1;
-    buf[len] = '\0';
+    buf[len] = '\0';                    /* Thêm null-terminator để dùng như chuỗi C */
     return len;
 }
 
-/* Gửi tin nhắn với 4-byte length prefix */
+/* Gửi một tin nhắn theo giao thức length-prefix:
+ *   [4 byte độ dài (big-endian)] [nội dung]
+ * Trả về số byte nội dung đã gửi, hoặc giá trị âm nếu lỗi */
 static int send_msg(int fd, const char *buf, int len) {
-    uint32_t net_len = htonl((uint32_t)len);
+    uint32_t net_len = htonl((uint32_t)len);    /* Chuyển sang network byte order */
     if (write_all(fd, (char *)&net_len, 4) != 4) return -1;
     return write_all(fd, buf, len);
 }
 
-/* Thread xử lý từng client */
+/* Hàm chạy trong thread riêng cho mỗi client.
+ * arg là con trỏ tới int chứa socket fd của client (được malloc từ main,
+ * thread này chịu trách nhiệm free để tránh memory leak). */
 static void *handle_client(void *arg) {
     int cfd = *(int *)arg;
-    free(arg);
+    free(arg);  /* Giải phóng bộ nhớ đã malloc ở main */
 
     char buf[BUF_SIZE];
     while (1) {
+        /* Nhận tin nhắn từ client; trả về -1 khi kết nối bị đóng */
         int n = recv_msg(cfd, buf, sizeof(buf));
-        if (n < 0) break; /* Kết nối bị đóng */
+        if (n < 0) break;
 
-        /* Thoát nếu client gửi "q" hoặc "Q" */
+        /* Nếu client gửi "q" hoặc "Q" thì ngắt kết nối chủ động */
         if (n == 1 && (buf[0] == 'q' || buf[0] == 'Q')) {
             printf("Client sent quit signal\n");
             break;
         }
 
-        /* Chuyển toàn bộ chuỗi thành chữ hoa */
+        /* Chuyển toàn bộ chuỗi thành chữ hoa rồi gửi lại */
         for (int i = 0; i < n; i++)
             buf[i] = toupper((unsigned char)buf[i]);
 
@@ -86,12 +96,15 @@ static void *handle_client(void *arg) {
 }
 
 int main(void) {
+    /* Tạo TCP socket */
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) { perror("socket"); return 1; }
 
+    /* Cho phép tái sử dụng địa chỉ ngay sau khi server tắt (tránh lỗi "Address already in use") */
     int opt = 1;
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
+    /* Cấu hình địa chỉ lắng nghe: chỉ chấp nhận kết nối từ localhost */
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
@@ -101,9 +114,10 @@ int main(void) {
     if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         perror("bind"); close(sock); return 1;
     }
-    listen(sock, 10);
+    listen(sock, 10);   /* Hàng chờ tối đa 10 kết nối chưa được accept */
     printf("Multi-thread server listening on %s:%d\n", SERVER_IP, SERVER_PORT);
 
+    /* Vòng lặp chính: chấp nhận client và tạo thread mới cho mỗi client */
     while (1) {
         struct sockaddr_in client;
         socklen_t clen = sizeof(client);
@@ -111,14 +125,16 @@ int main(void) {
         if (cfd < 0) { perror("accept"); continue; }
         printf("New client: %s\n", inet_ntoa(client.sin_addr));
 
-        /* Cấp phát bộ nhớ cho fd để truyền vào thread an toàn */
+        /* Cấp phát fd trên heap để truyền vào thread an toàn.
+         * Không dùng địa chỉ biến local vì vòng lặp sẽ ghi đè trước khi thread kịp đọc. */
         int *pcfd = malloc(sizeof(int));
         if (!pcfd) { close(cfd); continue; }
         *pcfd = cfd;
 
+        /* Tạo thread mới xử lý client; detach để thread tự dọn tài nguyên khi kết thúc */
         pthread_t tid;
         pthread_create(&tid, NULL, handle_client, pcfd);
-        pthread_detach(tid); /* Thread tự dọn dẹp khi xong */
+        pthread_detach(tid);
     }
 
     close(sock);

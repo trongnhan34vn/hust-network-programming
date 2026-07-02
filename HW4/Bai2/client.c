@@ -15,6 +15,7 @@
 
 #define BUF_SIZE 4096
 
+/* Đọc đúng n byte từ fd, xử lý partial read của TCP */
 static int read_all(int fd, char *buf, int n) {
     int total = 0, r;
     while (total < n) {
@@ -25,6 +26,7 @@ static int read_all(int fd, char *buf, int n) {
     return total;
 }
 
+/* Ghi đúng n byte vào fd, xử lý partial write của TCP */
 static int write_all(int fd, const char *buf, int n) {
     int total = 0, w;
     while (total < n) {
@@ -35,14 +37,16 @@ static int write_all(int fd, const char *buf, int n) {
     return total;
 }
 
-/* Gửi chuỗi với prefix 4 byte độ dài */
+/* Gửi chuỗi với prefix 4 byte độ dài (big-endian).
+ * Dùng để gửi tên file hoặc chuỗi rỗng để báo hiệu kết thúc phiên. */
 static void send_str(int fd, const char *s) {
     uint32_t net_len = htonl((uint32_t)strlen(s));
     write_all(fd, (char *)&net_len, 4);
     write_all(fd, s, (int)strlen(s));
 }
 
-/* Nhận chuỗi với prefix 4 byte độ dài */
+/* Nhận chuỗi phản hồi với prefix 4 byte độ dài.
+ * Dùng để nhận thông báo thành công hoặc lỗi từ server. */
 static int recv_str(int fd, char *buf, int maxlen) {
     uint32_t net_len;
     if (read_all(fd, (char *)&net_len, 4) != 4) return -1;
@@ -59,6 +63,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    /* Tạo TCP socket và kết nối tới server */
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) { perror("socket"); return 1; }
 
@@ -75,6 +80,7 @@ int main(int argc, char *argv[]) {
 
     char filepath[512], response[256];
 
+    /* Vòng lặp: mỗi lần nhập đường dẫn, gửi một file */
     while (1) {
         printf("Enter file path (empty to quit): ");
         fflush(stdout);
@@ -82,15 +88,16 @@ int main(int argc, char *argv[]) {
 
         filepath[strcspn(filepath, "\n")] = '\0';
         if (filepath[0] == '\0') {
-            send_str(sock, ""); /* Báo hiệu kết thúc */
+            /* Dòng rỗng → gửi tên file rỗng để báo server kết thúc phiên, rồi thoát */
+            send_str(sock, "");
             break;
         }
 
-        /* Kiểm tra file tồn tại và lấy kích thước */
+        /* Kiểm tra file tồn tại và lấy kích thước trước khi gửi */
         struct stat st;
         if (stat(filepath, &st) != 0) {
             printf("Error: File not found\n");
-            continue;
+            continue;   /* Không gửi gì lên server, tiếp tục vòng lặp */
         }
 
         FILE *fp = fopen(filepath, "rb");
@@ -99,14 +106,14 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        /* Gửi tên file */
+        /* Gửi tên file (server sẽ dùng basename để lưu) */
         send_str(sock, filepath);
 
-        /* Gửi kích thước file (4 byte) */
+        /* Gửi kích thước file dưới dạng 4 byte big-endian */
         uint32_t net_size = htonl((uint32_t)st.st_size);
         write_all(sock, (char *)&net_size, 4);
 
-        /* Gửi nội dung file */
+        /* Gửi nội dung file theo từng chunk để không cần load toàn bộ vào RAM */
         char buf[BUF_SIZE];
         long rem = (long)st.st_size;
         int ok = 1;
@@ -121,7 +128,7 @@ int main(int argc, char *argv[]) {
 
         if (!ok) { printf("Error reading file\n"); break; }
 
-        /* Nhận phản hồi từ server */
+        /* Nhận và hiển thị thông báo kết quả từ server */
         if (recv_str(sock, response, sizeof(response)) < 0) {
             printf("Server disconnected\n");
             break;
