@@ -1,0 +1,5 @@
+File Transfer Server listening on port 7700
+Client connected: 127.0.0.1
+[127.0.0.1] Receiving file: test_input.txt (99 bytes)
+[127.0.0.1] File saved as: received_test_input.txt
+Client disconnected: 127.0.0.1

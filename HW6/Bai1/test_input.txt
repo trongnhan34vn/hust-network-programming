@@ -1,0 +1,3 @@
+Day la noi dung file test HW6 Bai 1.
+Network Programming - TCP File Transfer.
+Line 3: Hello World!

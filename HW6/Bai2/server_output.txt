@@ -1,0 +1,14 @@
+Caesar Cipher Server listening on port 7701 (key=3)
+Client connected: 127.0.0.1
+[127.0.0.1] Session started (Caesar key = 3)
+[127.0.0.1] Encrypted  : Khoor
+[127.0.0.1] Decrypted  : Hello
+[127.0.0.1] Encrypted  : Qhwzrun Surjudpplqj
+[127.0.0.1] Decrypted  : Network Programming
+[127.0.0.1] Encrypted  : DEF abc 123
+[127.0.0.1] Decrypted  : ABC xyz 123
+[127.0.0.1] Encrypted  : t
+[127.0.0.1] Decrypted  : q
+[127.0.0.1] Client requested quit
+[127.0.0.1] Session ended
+Client disconnected: 127.0.0.1
